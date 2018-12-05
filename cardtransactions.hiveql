@@ -1,13 +1,13 @@
 /* Create an external table containing card_transactions. This is one time dump provided
 
-create external table card_transactions(`card_id` string, `member_id` string, `Amount` Double, `postcode` INT, `pos_id` BIGINT,
+create external table if not exists card_transactions(`card_id` string, `member_id` string, `Amount` Double, `postcode` INT, `pos_id` BIGINT,
 `transaction_dt` string, `status` string) 
 ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde' WITH SERDEPROPERTIES ("separatorChar" = ",") 
 LOCATION 'hdfs:/user/hdfs/card_details' tblproperties("skip.header.line.count"="1");
 
 /* Loding card transactions data into card_transactions table
 
-LOAD DATA INPATH 'hdfs:/user/hdfs/card_transactions.csv' INTO TABLE card_transactions;
+LOAD DATA INPATH 'hdfs:/user/hdfs/card_transactions.csv' OVERWRITE INTO TABLE card_transactions;
 
 /* Creating a Table in NOSQL Database. Following query will create a table in HBASE as well as HIVE
 
