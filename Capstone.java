@@ -1,5 +1,6 @@
 import java.io.Serializable;
 import java.nio.ByteBuffer;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -27,6 +28,9 @@ import org.apache.spark.streaming.kafka010.KafkaUtils;
 import org.apache.spark.streaming.kafka010.LocationStrategies;
 import org.json.simple.JSONArray;
 import org.json.simple.parser.JSONParser;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.io.IOException; 
 import java.io.Serializable;
 import org.apache.hadoop.hbase.HBaseConfiguration; 
@@ -88,6 +92,10 @@ public class CapStone {
 		}
 		
 	    }
+	
+
+	
+
 
 	
 	 public static void main(String[] args) throws Exception {
@@ -96,13 +104,13 @@ public class CapStone {
 
 	        Logger.getLogger("org").setLevel(Level.ERROR);
 	        Logger.getLogger("akka").setLevel(Level.ERROR);
-
+	        
 	        SparkConf sparkConf = new SparkConf().setAppName("KafkaSparkStreamingDemo").setMaster("local");
 
 	        JavaStreamingContext jssc = new JavaStreamingContext(sparkConf, Durations.seconds(1));
 	        SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy hh:mm:ss");
-
-	        //Admin hbaseAdmin = HbaseConnection();
+	        
+	   
 	        
 	        String unique = UUID.randomUUID().toString();
 	        Map<String, Object> kafkaParams = new HashMap<>();
@@ -123,12 +131,15 @@ public class CapStone {
 	        JavaDStream<String> newDstream = stream.map(x -> x.value());
 	        //newDstream.print();
 	        ArrayList<JsonTransaction> list = new ArrayList<JsonTransaction>();
-	        int count=0;
+	   
 	        
 	        JavaDStream<JsonTransaction> Close_Dstream = newDstream.flatMap(new FlatMapFunction<String, JsonTransaction>() {
 				private static final long serialVersionUID = 1L;
 				
 					int count = 0;
+					DistanceUtility disUtil=new DistanceUtility();
+					Admin hBaseAdmin = HbaseConnection();
+
 					
 				public Iterator<JsonTransaction> call(String x) throws Exception {
 					JSONParser jsonParser = new JSONParser();
@@ -138,16 +149,14 @@ public class CapStone {
 
 					try {
 						Object obj = jsonParser.parse(x);
-						//System.out.println(obj.toString());
-						JsonTransaction convertstock = gson.fromJson(obj.toString(), JsonTransaction.class);
-						System.out.println(convertstock.card_id);
-						System.out.println(convertstock.transaction_dt);
 						
-						Date date = dateFormat.parse(convertstock.transaction_dt);
-						System.out.println(date.getTime());
+						JsonTransaction convertstock = gson.fromJson(obj.toString(), JsonTransaction.class);
+						System.out.println("Current transaction card ID is -->" +convertstock.card_id);
+						System.out.println("Current transaction date is --> " +convertstock.transaction_dt);
+						//Date date = dateFormat.parse(convertstock.transaction_dt);
+						//System.out.println(date.getTime());
 						int member_score = HbaseDao(convertstock,"score");
-						System.out.println(member_score);
-						//System.out.println(HbaseDao(convertstock));
+						//System.out.println(member_score);
 						list.add(convertstock);
 						count = count + 1;
 						System.out.println(count);
@@ -158,9 +167,7 @@ public class CapStone {
 						e.printStackTrace();
 					}
 					
-					//System.out.println("Size of List is " +list.size());
-					//System.out.println(list.toString());
-					return list.iterator();
+						return list.iterator();
 				}
 				
 			});
@@ -184,12 +191,10 @@ public class CapStone {
 	    }
 
 	private static Admin HbaseConnection()   {
-		// TODO Auto-generated method stub
+		
 		final long serialVersionUID = 1L;
-		 Admin hbaseAdmin = null;
+		HBaseAdmin hbaseAdmin = null;
 		 Connection con=null;
-		 //Admin getHbaseAdmin() throws IOException 
-		// {
 			 org.apache.hadoop.conf.Configuration conf = (org.apache.hadoop.conf.Configuration) HBaseConfiguration.create();
 			 conf.setInt("timeout", 1200);
 			 //conf.set("hbase.master", "ec2-54-158-19-60.compute-1.amazonaws.com:60000"); 
@@ -201,17 +206,14 @@ public class CapStone {
 			try {
 				con = ConnectionFactory.createConnection(conf);
 			} catch (IOException e1) {
-				// TODO Auto-generated catch block
 				e1.printStackTrace();
 			}
 			 try {
 				 if (hbaseAdmin == null)
-				 //hbaseAdmin = new HBaseAdmin(conf);
-				   
-				 hbaseAdmin = con.getAdmin(); 
-				 //System.out.println("I am inside HbaseConnection");
-				 //System.out.println(hbaseAdmin);
-			 	} 
+				 {				   
+				 hbaseAdmin = (HBaseAdmin) con.getAdmin(); 
+  			 	 } 
+			 }
 			 catch (Exception e) 
 			 {
 				 e.printStackTrace();
@@ -219,36 +221,63 @@ public class CapStone {
 			 
 			 return hbaseAdmin; 
 			 
-	      }
+}
+	
+	
 	
 	private static int HbaseDao(JsonTransaction convertstock, String column) throws IOException {
 		
 		HTable table = null;
 		Admin hBaseAdmin = HbaseConnection();
+		SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy hh:mm:ss");
 				
 		Get g = new Get(Bytes.toBytes(convertstock.getcard_id()));
-		//System.out.print("The valueof G is -->");
-		//System.out.println(g);
+		DistanceUtility disUtil=new DistanceUtility();
+
 		
 		
 		table = new HTable(hBaseAdmin.getConfiguration(), "master_lookup_hbase");
-		//System.out.print("The valueof Table is -->");
-		//System.out.println(table);
 		if (table != null) {
-			//System.out.println("I am inside hBase table");
-			Result result = table.get(g);
-			//System.out.print("result returned -->");
-			//System.out.println(result);
-			byte[] value = result.getValue(Bytes.toBytes("cf10"), Bytes.toBytes(column));
-			//System.out.print("value returned -->");
-			//System.out.println(value);
+						Result result = table.get(g);
+			
+			byte[] value = result.getValue(Bytes.toBytes("cf10"), Bytes.toBytes("score"));
+			byte [] ucl = result.getValue(Bytes.toBytes("cf9"), Bytes.toBytes("limit"));
+			byte [] postcode = result.getValue(Bytes.toBytes("cf7"), Bytes.toBytes("postcode"));
+			byte [] transaction_date = result.getValue(Bytes.toBytes("cf8"), Bytes.toBytes("transaction_date"));
+
+			
 			if (value != null) {
-				//System.out.println("Value that I am getting is -->" +value);
 				table.close();
 				hBaseAdmin.close();
-				//System.out.println(Integer.parseInt(Bytes.toString(value)));
-				return Integer.parseInt(Bytes.toString(value));
+				int limit = Integer.parseInt(Bytes.toString(ucl));
+				int score = Integer.parseInt(Bytes.toString(value));
+				Date last_date = null;
+				Date date = null;
+				try {
+					date = dateFormat.parse(convertstock.transaction_dt);
+					last_date = dateFormat.parse(new String(transaction_date,"UTF8"));
+				} catch (ParseException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
 				}
+				System.out.println("Current transaction time is -->" +date.getTime()/1000);
+				System.out.println("Last transaction time is -->" +last_date.getTime()/1000);
+				long Difference = (date.getTime()/1000 - last_date.getTime()/1000);
+				long permitted_distance = Difference*4;
+				System.out.println("Time Difference between transactions in hours is  -->" +Difference/3600);
+				
+				
+				String code = (Bytes.toString(postcode));
+				double dist = disUtil.getDistanceViaZipCode(code, convertstock.getpostcode().toString());
+				System.out.println("Distance is --> " +disUtil.getDistanceViaZipCode(code, convertstock.getpostcode().toString()));
+				
+				
+				if ((convertstock.getamount() < limit) && (score > 200) && (dist < permitted_distance))
+				{
+					System.out.println("Limit = " +limit + " score = " +score + " distance =" +dist);	
+					return Integer.parseInt(Bytes.toString(value));
+				}
+			}
 			else
 			{
 				System.out.println("Null value received");
@@ -261,5 +290,4 @@ public class CapStone {
 	}
 	
 	
-		 //}
 }
