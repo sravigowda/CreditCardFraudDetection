@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
+import java.util.zip.CRC32;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -41,7 +42,8 @@ import org.apache.hadoop.hbase.client.HBaseAdmin;
 import com.google.gson.Gson;
 import org.apache.hadoop.hbase.client.Admin; 
 import org.apache.hadoop.hbase.client.Get; 
-import org.apache.hadoop.hbase.client.HTable; 
+import org.apache.hadoop.hbase.client.HTable;
+import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result; 
 import org.apache.hadoop.hbase.util.Bytes;
 
@@ -158,11 +160,11 @@ public class CapStone {
 						int status = HbaseDao(convertstock);
 						if (status == 1)
 						{
-							System.out.println("This transactions is Genuine");
+							System.out.println("This transactions is GENUINE");
 						}
 						else
 						{
-							System.out.println("This transaction is Fraudulent");
+							System.out.println("This transaction is FRAUD");
 						}
 						//System.out.println(member_score);
 						list.add(convertstock);
@@ -184,10 +186,10 @@ public class CapStone {
 	        	System.out.println(transaction.member_id);
 	        }
 	        
-	        System.out.println("Inside Dstream " +Close_Dstream.toString());
-			JavaDStream<Long> count_stream = Close_Dstream.count(); 
-			System.out.print("Number of RDD in this stream = ");
-			count_stream.print();
+	        //System.out.println("Inside Dstream " +Close_Dstream.toString());
+			//JavaDStream<Long> count_stream = Close_Dstream.count(); 
+			//System.out.print("Number of RDD in this stream = ");
+			//count_stream.print();
 	        
 	       	        
 
@@ -236,15 +238,38 @@ public class CapStone {
 	private static int HbaseDao(JsonTransaction convertstock) throws IOException {
 		
 		HTable table = null;
+		HTable transactions_table = null;
+		HTable lookup_table = null;
 		//Admin hBaseAdmin = HbaseConnection();
 		SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy hh:mm:ss");
 				
 		Get g = new Get(Bytes.toBytes(convertstock.getcard_id()));
 		DistanceUtility disUtil=new DistanceUtility();
 
+		CRC32 crc = new CRC32();
+		Long card_id_int = Long.parseLong(convertstock.getcard_id());
+		Long Amount = convertstock.getamount();
+		//System.out.println("Card Id in Integer form is --> " +card_id_int);
+		Long transaction_dt_int = null;
+		
+		try {
+			transaction_dt_int = dateFormat.parse(convertstock.gettransaction_dt()).getTime();
+		} catch (ParseException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+	
+		String crc_string = card_id_int.toString()+Amount.toString()+transaction_dt_int.toString();
+		
+		crc.update(crc_string.getBytes());
+		Put p = new Put(Bytes.toBytes(crc.getValue()));
+		Put u = new Put(Bytes.toBytes(convertstock.getcard_id()));
+		
+		//table = new HTable(hBaseAdmin.getConfiguration(), "master_lookup_hbase");
+		table = new HTable(hBaseAdmin.getConfiguration(), "new_master_lookup_hbase");
+		transactions_table = new HTable(hBaseAdmin.getConfiguration(), "new_card_transactions_hbase");
 		
 		
-		table = new HTable(hBaseAdmin.getConfiguration(), "master_lookup_hbase");
 		if (table != null) {
 						Result result = table.get(g);
 			
@@ -252,7 +277,7 @@ public class CapStone {
 			byte [] ucl = result.getValue(Bytes.toBytes("cf9"), Bytes.toBytes("limit"));
 			byte [] postcode = result.getValue(Bytes.toBytes("cf7"), Bytes.toBytes("postcode"));
 			byte [] transaction_date = result.getValue(Bytes.toBytes("cf8"), Bytes.toBytes("transaction_date"));
-
+			
 			
 			if (value != null) {
 				table.close();
@@ -275,18 +300,33 @@ public class CapStone {
 				//System.out.println("Time Difference between transactions in hours is  -->" +Difference/3600);
 				
 				
-				String code = (Bytes.toString(postcode));
-				double dist = disUtil.getDistanceViaZipCode(code, convertstock.getpostcode().toString());
-				//System.out.println("Distance is --> " +disUtil.getDistanceViaZipCode(code, convertstock.getpostcode().toString()));
+				String code = new String(postcode, "UTF-8");
 				
+				//System.out.println("The code value is -> " +code);
+				double  dist = disUtil.getDistanceViaZipCode(code, convertstock.getpostcode().toString());
+				
+				//System.out.println("Distance is --> " +disUtil.getDistanceViaZipCode(code, convertstock.getpostcode().toString()));
+				p.add(Bytes.toBytes("cf1"), Bytes.toBytes("card_id"), Bytes.toBytes(convertstock.getcard_id()));
+				p.add(Bytes.toBytes("cf2"), Bytes.toBytes("member_id"), Bytes.toBytes(convertstock.getMember_id()));
+				p.add(Bytes.toBytes("cf3"), Bytes.toBytes("Amount"), Bytes.toBytes(convertstock.getamount()));
+				p.add(Bytes.toBytes("cf4"), Bytes.toBytes("postcode"), Bytes.toBytes(convertstock.getpostcode()));
+				p.add(Bytes.toBytes("cf5"), Bytes.toBytes("pos_id"), Bytes.toBytes(convertstock.getpos_id()));
+				p.add(Bytes.toBytes("cf6"), Bytes.toBytes("transaction_dt"), Bytes.toBytes(convertstock.gettransaction_dt()));
 				
 				if ((convertstock.getamount() < limit) && (score > 200) && (dist < permitted_distance))
 				{
-					System.out.println("Limit = " +limit + " score = " +score + " distance =" +dist);	
+					System.out.println("Limit = " +limit + " score = " +score + " distance =" +dist);
+					
+					p.add(Bytes.toBytes("cf6"), Bytes.toBytes("status"), Bytes.toBytes("GENUINE"));
+					u.add(Bytes.toBytes("cf8"), Bytes.toBytes("transaction_dt"), Bytes.toBytes(convertstock.gettransaction_dt()));
+					u.add(Bytes.toBytes("cf7"), Bytes.toBytes("postcode"), Bytes.toBytes(convertstock.getpostcode().toString()));
+					transactions_table.put(p);
+					table.put(u);
 					return 1;
 				}
 				else
-				{
+				{	p.add(Bytes.toBytes("cf6"), Bytes.toBytes("status"), Bytes.toBytes("FRAUD"));
+					transactions_table.put(p);
 					return 0;
 				}
 			}
