@@ -93,7 +93,7 @@ public class CapStone {
 		
 	    }
 	
-
+	static Admin hBaseAdmin = HbaseConnection();
 	
 
 
@@ -138,7 +138,7 @@ public class CapStone {
 				
 					int count = 0;
 					DistanceUtility disUtil=new DistanceUtility();
-					Admin hBaseAdmin = HbaseConnection();
+					//Admin hBaseAdmin = HbaseConnection();
 
 					
 				public Iterator<JsonTransaction> call(String x) throws Exception {
@@ -155,7 +155,15 @@ public class CapStone {
 						System.out.println("Current transaction date is --> " +convertstock.transaction_dt);
 						//Date date = dateFormat.parse(convertstock.transaction_dt);
 						//System.out.println(date.getTime());
-						int member_score = HbaseDao(convertstock,"score");
+						int status = HbaseDao(convertstock);
+						if (status == 1)
+						{
+							System.out.println("This transactions is Genuine");
+						}
+						else
+						{
+							System.out.println("This transaction is Fraudulent");
+						}
 						//System.out.println(member_score);
 						list.add(convertstock);
 						count = count + 1;
@@ -190,7 +198,7 @@ public class CapStone {
 
 	    }
 
-	private static Admin HbaseConnection()   {
+	public static  Admin HbaseConnection()  {
 		
 		final long serialVersionUID = 1L;
 		HBaseAdmin hbaseAdmin = null;
@@ -225,10 +233,10 @@ public class CapStone {
 	
 	
 	
-	private static int HbaseDao(JsonTransaction convertstock, String column) throws IOException {
+	private static int HbaseDao(JsonTransaction convertstock) throws IOException {
 		
 		HTable table = null;
-		Admin hBaseAdmin = HbaseConnection();
+		//Admin hBaseAdmin = HbaseConnection();
 		SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy hh:mm:ss");
 				
 		Get g = new Get(Bytes.toBytes(convertstock.getcard_id()));
@@ -248,7 +256,7 @@ public class CapStone {
 			
 			if (value != null) {
 				table.close();
-				hBaseAdmin.close();
+				//hBaseAdmin.close();
 				int limit = Integer.parseInt(Bytes.toString(ucl));
 				int score = Integer.parseInt(Bytes.toString(value));
 				Date last_date = null;
@@ -260,22 +268,26 @@ public class CapStone {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-				System.out.println("Current transaction time is -->" +date.getTime()/1000);
-				System.out.println("Last transaction time is -->" +last_date.getTime()/1000);
+				//System.out.println("Current transaction time is -->" +date.getTime()/1000);
+				//System.out.println("Last transaction time is -->" +last_date.getTime()/1000);
 				long Difference = (date.getTime()/1000 - last_date.getTime()/1000);
 				long permitted_distance = Difference*4;
-				System.out.println("Time Difference between transactions in hours is  -->" +Difference/3600);
+				//System.out.println("Time Difference between transactions in hours is  -->" +Difference/3600);
 				
 				
 				String code = (Bytes.toString(postcode));
 				double dist = disUtil.getDistanceViaZipCode(code, convertstock.getpostcode().toString());
-				System.out.println("Distance is --> " +disUtil.getDistanceViaZipCode(code, convertstock.getpostcode().toString()));
+				//System.out.println("Distance is --> " +disUtil.getDistanceViaZipCode(code, convertstock.getpostcode().toString()));
 				
 				
 				if ((convertstock.getamount() < limit) && (score > 200) && (dist < permitted_distance))
 				{
 					System.out.println("Limit = " +limit + " score = " +score + " distance =" +dist);	
-					return Integer.parseInt(Bytes.toString(value));
+					return 1;
+				}
+				else
+				{
+					return 0;
 				}
 			}
 			else
@@ -285,8 +297,8 @@ public class CapStone {
 			}
 		}
 		table.close();
-		hBaseAdmin.close();
-		return -1;
+		//hBaseAdmin.close();
+		return 0;
 	}
 	
 	
