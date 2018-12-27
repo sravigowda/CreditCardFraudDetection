@@ -99,13 +99,26 @@ public class FraudAnalysis {
 	 * Creating an HbaseConnection for connecting to Hbase and running our queries.
 	 * We are using only one connection to run all our queries.
 	 */
-	static Admin hBaseAdmin = HbaseConnection();
+	//static Admin hBaseAdmin = HbaseConnection();
+	static Admin hBaseAdmin = null;
+	static String hostname = null;
+	
 
 	public static void main(String[] args) throws Exception {
 
 		Logger.getLogger("org").setLevel(Level.ERROR);
 		Logger.getLogger("akka").setLevel(Level.ERROR);
+		
+		if (args.length != 1) {
+			System.out.println("Please provide HBase hostname");
+			System.exit(-1);
+		}
+		
+		hostname = args[0];
+		System.out.println("we are connecting to " +hostname);
 
+		hBaseAdmin = HbaseConnection();
+		
 		SparkConf sparkConf = new SparkConf().setAppName("KafkaSparkStreamingDemo").setMaster("local");
 
 		JavaStreamingContext jssc = new JavaStreamingContext(sparkConf, Durations.seconds(1));
@@ -128,7 +141,9 @@ public class FraudAnalysis {
 		kafkaParams.put("group.id", unique);
 		kafkaParams.put("auto.offset.reset", "earliest");
 		kafkaParams.put("enable.auto.commit", true);
+		kafkaParams.put("max.partition.fetch.bytes", 300);
 
+		
 		Collection<String> topics = Arrays.asList("transactions-topic-verified");
 
 		JavaInputDStream<ConsumerRecord<String, String>> stream = KafkaUtils.createDirectStream(jssc,
@@ -139,27 +154,29 @@ public class FraudAnalysis {
 		 * Converting the stream from kafka to Dstream
 		 */
 		JavaDStream<String> newDstream = stream.map(x -> x.value());
-		// newDstream.print();
+		newDstream.print();
 		ArrayList<JsonTransaction> list = new ArrayList<JsonTransaction>();
-
+		
 		JavaDStream<JsonTransaction> Close_Dstream = newDstream.flatMap(new FlatMapFunction<String, JsonTransaction>() {
 			private static final long serialVersionUID = 1L;
 
 			int count = 0;
 			DistanceUtility disUtil = new DistanceUtility();
-
+			
 			public Iterator<JsonTransaction> call(String x) throws Exception {
 				JSONParser jsonParser = new JSONParser();
 
 				Gson gson = new Gson();
+				
 
 				try {
 					Object obj = jsonParser.parse(x);
 					JsonTransaction convertstock = gson.fromJson(obj.toString(), JsonTransaction.class);
 					System.out.println("Current transaction card ID is -->" + convertstock.getcard_id());
 					System.out.println("Current transaction date is --> " + convertstock.gettransaction_dt());
-					// Date date = dateFormat.parse(convertstock.transaction_dt);
-					// System.out.println(date.getTime());
+					System.out.println("Current transaction Amount is --> " +convertstock.getamount());
+					System.out.println("Curent transaction post code is -->" +convertstock.getpostcode());
+					
 					/*
 					 * Calling HbaseDao function to check whether transaction is genuine or not
 					 */
@@ -172,7 +189,7 @@ public class FraudAnalysis {
 					// System.out.println(member_score);
 					list.add(convertstock);
 					count = count + 1;
-					System.out.println(count);
+					System.out.println("Transaction Number ---> " +count);
 
 				} catch (Exception e) {
 					e.printStackTrace();
@@ -202,7 +219,7 @@ public class FraudAnalysis {
 	public static Admin HbaseConnection() {
 
 		final long serialVersionUID = 1L;
-		HBaseAdmin hbaseAdmin = null;
+		//HBaseAdmin hbaseAdmin = null;
 		Connection con = null;
 
 		/*
@@ -211,11 +228,9 @@ public class FraudAnalysis {
 		 */
 		org.apache.hadoop.conf.Configuration conf = (org.apache.hadoop.conf.Configuration) HBaseConfiguration.create();
 		conf.setInt("timeout", 1200);
-		// conf.set("hbase.master", "ec2-54-158-19-60.compute-1.amazonaws.com:60000");
-		// conf.set("hbase.zookeeper.quorum",
-		// "ec2-54-158-19-60.compute-1.amazonaws.com");
-		conf.set("hbase.master", "10.106.154.5:60000");
-		conf.set("hbase.zookeeper.quorum", "10.106.154.5");
+		String master = hostname+":60000";
+		conf.set("hbase.master", master);
+		conf.set("hbase.zookeeper.quorum",hostname);
 		conf.set("hbase.zookeeper.property.clientPort", "2181");
 		conf.set("zookeeper.znode.parent", "/hbase");
 		try {
@@ -224,14 +239,15 @@ public class FraudAnalysis {
 			e1.printStackTrace();
 		}
 		try {
-			if (hbaseAdmin == null) {
-				hbaseAdmin = (HBaseAdmin) con.getAdmin();
+			if (hBaseAdmin == null) {
+				hBaseAdmin = (HBaseAdmin) con.getAdmin();
 			}
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
 
-		return hbaseAdmin;
+		System.out.println("Inside HBASE Connection function");
+		return hBaseAdmin;
 
 	}
 
@@ -260,8 +276,7 @@ public class FraudAnalysis {
 		CRC32 crc = new CRC32();
 		Long card_id_int = Long.parseLong(convertstock.getcard_id());
 		Double Amount = Double.parseDouble(convertstock.getamount());
-		String currentdate = (String) convertstock.gettransaction_dt();
-		
+				
 		// System.out.println("Card Id in Integer form is --> " +card_id_int);
 		Long transaction_dt_int = null;
 
@@ -275,6 +290,7 @@ public class FraudAnalysis {
 		String crc_string = card_id_int.toString() + Amount.toString() + transaction_dt_int.toString();
 		crc.update(crc_string.getBytes());
 		String Unique_id = Long.toString(crc.getValue());
+		
 		/*
 		 * Declaring Put class to insert and update transaction details in transaction
 		 * table and master look up table Inserting transaction data, as explained
@@ -310,7 +326,6 @@ public class FraudAnalysis {
 
 			if (value != null) {
 				table.close();
-				// hBaseAdmin.close();
 				int limit = Integer.parseInt(Bytes.toString(ucl));
 				int score = Integer.parseInt(Bytes.toString(value));
 				Date last_date = null;
@@ -322,9 +337,7 @@ public class FraudAnalysis {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-				//System.out.print("Current transaction date is -->" +currentdate);
-				//System.out.println("Last transactions date is -->" +last_date);
-				
+								
 				/*
 				 * These are written for debugging purpose
 				System.out.println("New Current transactions date is -->" +date.toString());
@@ -338,9 +351,7 @@ public class FraudAnalysis {
 				 */
 				long Difference = (date.getTime() / 1000 - last_date.getTime() / 1000);
 				long permitted_distance = Difference / 4;
-				// System.out.println("Time Difference between transactions in hours is -->"
-				// +Difference/3600);
-
+				
 				String code = new String(postcode, "UTF-8");
 
 				/*
@@ -348,18 +359,15 @@ public class FraudAnalysis {
 				 * transactions. This will help us to identify whether given transaction is
 				 * fraud or not.
 				 */
-				// System.out.println("The code value is -> " +code);
+				
 				double dist = disUtil.getDistanceViaZipCode(code, convertstock.getpostcode().toString());
 
-				// System.out.println("Distance is --> " +disUtil.getDistanceViaZipCode(code,
-				// convertstock.getpostcode().toString()));
 				/*
 				 * We are adding all values from transaction details to transaction details
 				 * table.
 				 */
 				
-				//System.out.println("Current transaction date is "+convertstock.gettransaction_dt());
-				
+								
 				p.add(Bytes.toBytes("cf1"), Bytes.toBytes("card_id"), Bytes.toBytes(convertstock.getcard_id()));
 				p.add(Bytes.toBytes("cf2"), Bytes.toBytes("member_id"), Bytes.toBytes(convertstock.getMember_id()));
 				p.add(Bytes.toBytes("cf3"), Bytes.toBytes("Amount"), Bytes.toBytes(convertstock.getamount()));
@@ -405,3 +413,5 @@ public class FraudAnalysis {
 	}
 
 }
+
+
